@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>拾光漫步 · 城市旅行打卡手账</title>
+  <!-- 内联 SVG favicon：图钉emoji风格，避免浏览器默认请求 404 -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='18' y='25' width='64' height='58' rx='8' fill='%23f2c14e' stroke='%234a4039' stroke-width='6'/%3E%3Ccircle cx='50' cy='38' r='12' fill='%23d94f3d'/%3E%3C/svg%3E">
+  <!-- 中文手写字体：马善政（标题）+ 志莽行书（点缀），离线时回退系统字体 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 顶部导航：引导页隐藏，其余页面显示 -->
+    <header id="app-header" class="hidden">
+      <div class="header-inner">
+        <!-- Logo 点击回到欢迎页 -->
+        <div class="app-logo" data-nav="/welcome">
+          <span class="logo-mark">✎</span>
+          <span class="logo-text">拾光漫步</span>
+        </div>
+        <nav class="main-tabs">
+          <button class="tab-btn" data-nav="/recommend" data-tab="recommend">城市推荐</button>
+          <button class="tab-btn" data-nav="/notes" data-tab="notes">便签墙</button>
+          <button class="tab-btn" data-nav="/footprint" data-tab="footprint">足迹</button>
+        </nav>
+        <button class="settings-btn" data-nav="/settings" title="设置">⚙</button>
+      </div>
+    </header>
+
+    <!-- 视图容器：所有页面由 JS 渲染至此 -->
+    <main id="view-container"></main>
+
+    <!-- 弹层与轻提示挂载点 -->
+    <div id="modal-root"></div>
+    <div id="toast-root"></div>
+  </div>
+
+  <!-- 依赖顺序：数据 → 存储 → 大模型 → 地图 → 视图 → 主控 -->
+  <script src="js/data.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/llm.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/views.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
