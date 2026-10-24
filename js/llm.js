@@ -82,29 +82,53 @@
    * 根据用户选择的多层关键词推荐城市
    * @param {Object} selections 五层选择 {mood, region, terrain, feature, activity}
    * @returns Promise<{cityId, reason, source:'ai'|'local'}>
+   *
+   * 匹配策略：区分「硬约束」与「软偏好」
+   * - 硬约束（南北 region、地貌 terrain）：地理事实，违背即不可接受 → 采用"过滤"剔除
+   * - 软偏好（心情 mood、特色 feature、玩法 activity）：个人偏好 → 采用"加权计分"排序
+   * 避免出现"选了南方+海边却推荐北方内陆城市"这类违背硬约束的情况。
    */
   function recommendCity(selections) {
     var cities = global.AppData.CITIES;
-    // '都可以' 视为通配，不参与计分
-    var words = Object.keys(selections)
-      .map(function (k) { return selections[k]; })
-      .filter(function (w) { return w && w !== '都可以'; });
 
-    // 本地兜底：按关键词命中数计分
+    /** 硬约束维度：南北 / 地貌，命中判定采用过滤 */
+    var HARD = ['region', 'terrain'];
+    /** 软偏好维度权重：特色 > 心情 = 玩法 */
+    var SOFT_WEIGHTS = { mood: 1, feature: 2, activity: 1 };
+
+    /** 判断城市是否违背硬约束（用户选定的硬约束值必须存在于城市 tags） */
+    function violatesHard(city) {
+      return HARD.some(function (dim) {
+        var val = selections[dim];
+        // 空值或「都可以」不构成约束
+        if (!val || val === '都可以') return false;
+        return city.tags.indexOf(val) === -1;
+      });
+    }
+
+    /** 本地兜底：硬约束过滤 → 软偏好加权计分 */
     function localMatch() {
+      // 1. 硬约束过滤：不满足南北/地貌的城市直接剔除
+      var candidates = cities.filter(function (c) { return !violatesHard(c); });
+      // 2. 过滤后为空（极端组合）时回退到全部城市，保证有结果
+      if (!candidates.length) candidates = cities.slice();
+
+      // 3. 软偏好加权计分（回退场景下硬约束命中额外给高权重，保证优先满足地理约束）
       var best = null, bestScore = -1;
-      cities.forEach(function (city) {
+      candidates.forEach(function (city) {
         var score = 0;
-        words.forEach(function (w) {
-          if (city.tags.indexOf(w) !== -1) score++;
+        Object.keys(SOFT_WEIGHTS).forEach(function (dim) {
+          var val = selections[dim];
+          if (val && city.tags.indexOf(val) !== -1) score += SOFT_WEIGHTS[dim];
+        });
+        HARD.forEach(function (dim) {
+          var val = selections[dim];
+          if (val && val !== '都可以' && city.tags.indexOf(val) !== -1) score += 3;
         });
         if (score > bestScore) { bestScore = score; best = city; }
       });
-      return {
-        cityId: best.id,
-        reason: best.desc,
-        source: 'local'
-      };
+      console.log('[CityWalk][LLM] 本地推荐 city=' + best.id + ' score=' + bestScore + ' 候选数=' + candidates.length);
+      return { cityId: best.id, reason: best.desc, source: 'local' };
     }
 
     if (!isConfigured()) return Promise.resolve(localMatch());
@@ -113,21 +137,26 @@
       return c.id + '（' + c.name + '：' + c.tags.join('、') + '）';
     }).join('\n');
 
-    // 五层选择组织成自然语言描述，'都可以'不体现
+    // 五层选择组织成自然语言描述，硬约束明确标注
     var parts = [];
     if (selections.mood) parts.push('此刻心情「' + selections.mood + '」');
-    if (selections.region && selections.region !== '都可以') parts.push('偏爱「' + selections.region + '」');
-    if (selections.terrain) parts.push('想看「' + selections.terrain + '」');
+    if (selections.region && selections.region !== '都可以') parts.push('想去「' + selections.region + '」（硬性要求，必须满足）');
+    if (selections.terrain) parts.push('想看「' + selections.terrain + '」地貌（硬性要求，必须满足）');
     if (selections.feature) parts.push('想体验「' + selections.feature + '」');
     if (selections.activity) parts.push('打算「' + selections.activity + '」');
 
     return chat([
-      { role: 'system', content: '你是一位懂旅行的城市推荐师。只能从给定城市列表中选择。严格输出 JSON：{"cityId":"...","reason":"80字内推荐理由，口吻温暖有画面感"}' },
+      { role: 'system', content: '你是一位懂旅行的城市推荐师。只能从给定城市列表中选择。旅行者的南北方向与地貌风光属于硬性约束，必须严格满足，绝不能推荐违反这两项的城市。严格输出 JSON：{"cityId":"...","reason":"80字内推荐理由，口吻温暖有画面感"}' },
       { role: 'user', content: '可选城市：\n' + cityBrief + '\n\n旅行者' + parts.join('，') + '。请推荐匹配度最高的一个城市。' }
     ], true).then(function (text) {
       var obj = parseJsonLoose(text);
-      if (obj && obj.cityId && global.AppData.getCity(obj.cityId)) {
-        return { cityId: obj.cityId, reason: obj.reason || '', source: 'ai' };
+      if (obj && obj.cityId) {
+        var city = global.AppData.getCity(obj.cityId);
+        // AI 结果同样做硬约束校验，违背则回退本地匹配
+        if (city && !violatesHard(city)) {
+          return { cityId: obj.cityId, reason: obj.reason || '', source: 'ai' };
+        }
+        console.warn('[CityWalk][LLM] AI 推荐违背硬约束，回退本地匹配 city=' + obj.cityId);
       }
       return localMatch();
     }).catch(function () { return localMatch(); });
